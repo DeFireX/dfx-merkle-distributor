@@ -7,7 +7,7 @@ const fs = require('fs');
 const {decToHex, zeroPad, pack} = require('./helpers/utils.js');
 const { MerkleTree } = require('./helpers/merkleTree.js');
 
-const TOTAL_DFX_DISTRIBUTION = 500 * 1000; // 500,000 DFX
+const TOTAL_DFX_DISTRIBUTION = 250 * 1000; // 500,000 DFX
 const MIN_BALANCE = 20;
 
 (async () => {
@@ -21,7 +21,7 @@ const MIN_BALANCE = 20;
     for (let fromBlock = minBlock; fromBlock <= maxBlock; fromBlock += STEP) {
         const ret = await dDAI.getPastEvents('Transfer', {
             fromBlock: fromBlock,
-            toBlock: fromBlock + STEP
+            toBlock: fromBlock + STEP > maxBlock ? maxBlock : fromBlock + STEP
         });
         for (let row of ret) {
             const {to, from} = row.returnValues;
@@ -39,21 +39,23 @@ const MIN_BALANCE = 20;
     let lastBlock = minBlock;
     let totalTime = 0;
     while (true) {
-        const {blockNumber} = await defirex.methods.profits(n++).call();
+        const {blockNumber} = await defirex.methods.profits(n).call();
         if (blockNumber > maxBlock) break;
         const lastBlockInfo = await web3.eth.getBlock(lastBlock, false);
         const currentBlockInfo = await web3.eth.getBlock(blockNumber, false);
         const timeDiff = currentBlockInfo.timestamp - lastBlockInfo.timestamp;
         totalTime += timeDiff;
-        const coef = 1 / n;
+        const coef = 1 / (Math.log(1 + (n + 1) / 100));
         console.log('snapshot', n, 'coef', coef);
         for(const address of uniqueAddresses) {
-            const {totalLiquidity, totalSupplay} = await defirex.methods.userShare(address, n).call();
+            const {totalLiquidity, totalSupplay} = await defirex.methods.userShare(address, n + 1).call();
             if (!dfxDistributionShare[address]) dfxDistributionShare[address] = 0;
-            const currentShare = totalLiquidity * timeDiff / totalSupplay * coef;
+            const currentShare = (totalLiquidity * timeDiff / totalSupplay * coef) || 0;
             dfxDistributionShare[address] += currentShare;
             totalShare += currentShare;
         }
+        n++;
+        lastBlock = blockNumber;
     }
     totalShare /= totalTime;
     fs.writeFileSync('./dfxDistributionShare.tmp', JSON.stringify({dfxDistributionShare, totalShare, totalTime}), 'utf8');
