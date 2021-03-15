@@ -6,8 +6,6 @@ contract Ownable {
     address payable public owner;
     address payable internal newOwnerCandidate;
 
-    uint256 public unlockedTime;
-
     constructor() public {
         owner = msg.sender;
     }
@@ -19,11 +17,6 @@ contract Ownable {
 
     function changeOwner(address payable newOwner) public onlyOwner {
         newOwnerCandidate = newOwner;
-    }
-
-    function setUnlockedTime(uint256 newUnlockedTime) public onlyOwnerWithLockPeriod {
-        require(newUnlockedTime <= block.timestamp + 180 days);
-        unlockedTime = newUnlockedTime;
     }
 
     function acceptOwner() public {
@@ -548,6 +541,8 @@ contract DfxMerkleDistributor is Ownable, DSMath {
     address public immutable token;
     bytes32 public immutable merkleRoot;
 
+    bool public finalized;
+
     // This is a packed array of booleans.
     mapping(uint256 => uint256) internal claimedBitMap;
 
@@ -571,19 +566,7 @@ contract DfxMerkleDistributor is Ownable, DSMath {
     // ** PUBLIC functions **
 
     // Check distribution algorithm here https://github.com/DeFireX/dfx-merkle-distributor
-    function claim(uint256 index, uint256 amount, bytes32[] memory merkleProof) public {
-        _claim(index, msg.sender, amount, merkleProof);
-    }
-
-    // ** OWNER functions **
-    function withdrawTokensGetStuck(address _tokenAddress, uint256 _amount, address _toAddress) public onlyOwner {
-        require(_tokenAddress != token, 'Cant withdraw DFX tokens');
-
-        IToken(_tokenAddress).universalTransfer(_toAddress, _amount);
-    }
-
-    // ** INTERNAL functions **
-    function _claim(uint256 index, address account, uint256 amount, bytes32[] memory merkleProof) internal {
+    function claim(uint256 index, address account, uint256 amount, bytes32[] memory merkleProof) public {
         require(!isClaimed(index), 'MerkleDistributor: Already claimed.');
 
         // Verify the merkle proof.
@@ -598,6 +581,18 @@ contract DfxMerkleDistributor is Ownable, DSMath {
         emit Claimed(index, account, amount);
     }
 
+    // ** OWNER functions **
+    function withdrawTokensGetStuck(address _tokenAddress, uint256 _amount, address _toAddress) public onlyOwner {
+        if (finalized) require(_tokenAddress != token, 'Cant withdraw DFX tokens');
+
+        IToken(_tokenAddress).universalTransfer(_toAddress, _amount);
+    }
+
+    function finalize() public onlyOwner {
+        finalized = true;
+    }
+
+    // ** INTERNAL functions **
     function _setClaimed(uint256 index) internal {
         uint256 claimedWordIndex = index / 256;
         uint256 claimedBitIndex = index % 256;
